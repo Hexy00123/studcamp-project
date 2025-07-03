@@ -1,0 +1,4 @@
+clickhouse-connect
+clickhouse-driver
+jupyter
+python-dotenv
