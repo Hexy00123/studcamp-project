@@ -3,11 +3,14 @@ name = "project"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13, <4"
+requires-python = ">=3.12, <4"
 dependencies = [
     "clickhouse-connect>=0.8.18",
     "clickhouse-driver>=0.2.9",
     "jupyter>=1.1.1",
     "python-dotenv>=1.1.1",
     "polars (>=1.31.0,<2.0.0)",
+    "yandexcloud>=0.350.0",
+    "scikit-learn==1.5",
+    "fastapi>=0.116.0",
 ]

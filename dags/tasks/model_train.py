@@ -7,7 +7,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.base import BaseEstimator, TransformerMixin
-import pickle
+import joblib
 import json
 from datetime import datetime
 import sys
@@ -50,65 +50,33 @@ def train_model_with_gridsearch(
 ) -> Dict[str, Any]:
     """
     Load data from S3, train model with grid search, and save results
-    
-    Args:
-        s3_folder: S3 folder path containing the preprocessed data
-        model_name: Name of the model to train
-        param_grid: Parameter grid for grid search
-        cv: Number of cross-validation folds
-        scoring: Scoring metric for grid search
-        n_jobs: Number of parallel jobs
-    
-    Returns:
-        Dictionary with best hyperparameters, metrics, and model info
     """
     
-    # Initialize S3 client
     s3_client = YandexS3Client(bucket=BUCKET_NAME)
     
-    # Load train/test splits from S3
     print(f"Loading train/test splits from S3 folder: {s3_folder}")
     
-    # Load X_train
-    response = s3_client.client.get_object(
-        Bucket=BUCKET_NAME, 
-        Key=f"{s3_folder}/X_train.parquet"
-    )
+    response = s3_client.client.get_object(Bucket=BUCKET_NAME, Key=f"{s3_folder}/X_train.parquet")
     X_train = pd.read_parquet(io.BytesIO(response['Body'].read()))
-    
-    # Load X_test
-    response = s3_client.client.get_object(
-        Bucket=BUCKET_NAME, 
-        Key=f"{s3_folder}/X_test.parquet"
-    )
+
+    response = s3_client.client.get_object(Bucket=BUCKET_NAME, Key=f"{s3_folder}/X_test.parquet")
     X_test = pd.read_parquet(io.BytesIO(response['Body'].read()))
-    
-    # Load y_train
-    response = s3_client.client.get_object(
-        Bucket=BUCKET_NAME, 
-        Key=f"{s3_folder}/y_train.parquet"
-    )
+
+    response = s3_client.client.get_object(Bucket=BUCKET_NAME, Key=f"{s3_folder}/y_train.parquet")
     y_train = pd.read_parquet(io.BytesIO(response['Body'].read())).squeeze()
-    
-    # Load y_test
-    response = s3_client.client.get_object(
-        Bucket=BUCKET_NAME, 
-        Key=f"{s3_folder}/y_test.parquet"
-    )
+
+    response = s3_client.client.get_object(Bucket=BUCKET_NAME, Key=f"{s3_folder}/y_test.parquet")
     y_test = pd.read_parquet(io.BytesIO(response['Body'].read())).squeeze()
     
     print(f"Loaded train set shape: {X_train.shape}")
     print(f"Loaded test set shape: {X_test.shape}")
     
-    # Define categorical features
     categorical_features = ['kind', 'category', 'activity_code_main', 'settlement_type']
     
-    # Create base model
     base_model = model_name()
     if param_grid is None:
         raise AttributeError("You must provide a model parameters for optimisation")
 
-    # Create ML pipeline
     pipeline = Pipeline(steps=[
         ('cyclic_latlon', CyclicLatLonEncoder()),
         ('preprocessor', ColumnTransformer(
@@ -120,7 +88,6 @@ def train_model_with_gridsearch(
         ('model', base_model)
     ])
     
-    # Perform grid search
     print(f"Starting grid search with {len(param_grid)} parameter combinations...")
     print(f"Parameter grid: {param_grid}")
     
@@ -129,20 +96,16 @@ def train_model_with_gridsearch(
         param_grid,
         cv=cv,
         scoring=scoring,
-        verbose=1
+        verbose=3
     )
     
-    # Fit grid search
     grid_search.fit(X_train, y_train)
     
-    # Get best model
     best_model = grid_search.best_estimator_
     
-    # Make predictions with best model
     y_train_pred = best_model.predict(X_train)
     y_test_pred = best_model.predict(X_test)
     
-    # Calculate metrics
     train_metrics = {
         'mae': mean_absolute_error(y_train, y_train_pred),
         'mse': mean_squared_error(y_train, y_train_pred),
@@ -155,23 +118,20 @@ def train_model_with_gridsearch(
         'r2': r2_score(y_test, y_test_pred)
     }
     
-    # Create timestamp for model saving
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # Save model to S3
     print("Saving model to S3...")
     model_buffer = io.BytesIO()
-    pickle.dump(best_model, model_buffer)
+    joblib.dump(best_model, model_buffer)
     model_buffer.seek(0)
     
-    model_key = f"models/{timestamp}/model.pkl"
+    model_key = f"models/{timestamp}/model.joblib"
     s3_client.client.put_object(
         Bucket=BUCKET_NAME,
         Key=model_key,
         Body=model_buffer.getvalue()
     )
     
-    # Prepare results
     results = {
         'best_hyperparameters': grid_search.best_params_,
         'best_cv_score': grid_search.best_score_,
@@ -194,7 +154,6 @@ def train_model_with_gridsearch(
         }
     }
     
-    # Save results to S3
     s3_client.save_file(f"models/{timestamp}/results.json", results)
     
     print("Model training completed!")
@@ -210,12 +169,6 @@ def train_model_with_gridsearch(
 def load_model_from_s3(model_s3_path: str):
     """
     Load a trained model from S3
-    
-    Args:
-        model_s3_path: S3 path to the model file
-    
-    Returns:
-        Loaded scikit-learn model
     """
     s3_client = YandexS3Client(bucket=BUCKET_NAME)
     
@@ -224,7 +177,7 @@ def load_model_from_s3(model_s3_path: str):
         Key=model_s3_path
     )
     
-    model = pickle.load(io.BytesIO(response['Body'].read()))
+    model = joblib.load(io.BytesIO(response['Body'].read()))
     print(f"Model loaded from: {model_s3_path}")
     
     return model
@@ -233,12 +186,6 @@ def load_model_from_s3(model_s3_path: str):
 def get_model_results_from_s3(results_s3_path: str) -> Dict[str, Any]:
     """
     Load model results from S3
-    
-    Args:
-        results_s3_path: S3 path to the results JSON file
-    
-    Returns:
-        Dictionary with model results
     """
     s3_client = YandexS3Client(bucket=BUCKET_NAME)
     
