@@ -93,11 +93,5 @@ def predict(
         return f"{prediction[0]}"
     return "Query missing some values"
 
-@app.get("/click")
-def clickhouse(query: str = Query(None)):
-    if query:
-        return clickhouse_client.execute(query)
-    return clickhouse_client.execute("SELECT version()")
-
 if __name__ == "__main__": 
     app.run(host="0.0.0.0", port=8000)
